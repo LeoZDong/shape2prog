@@ -1,13 +1,13 @@
 # download the model
-mkdir -p model
+# mkdir -p model
 
-cd model
+# cd model
 
-wget http://shape2prog.csail.mit.edu/repo/model.tar.gz -O model.tar.gz
-tar zxvf model.tar.gz
-rm model.tar.gz
+# wget http://shape2prog.csail.mit.edu/repo/model.tar.gz -O model.tar.gz
+# tar zxvf model.tar.gz
+# rm model.tar.gz
 
-cd ..
+# cd ..
 
 # download the data
 mkdir -p data

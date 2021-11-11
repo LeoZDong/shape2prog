@@ -51,8 +51,8 @@ def get_parser():
     parser.add_argument('--reg_weight', type=int, default=3, help='parameter regression weight')
 
     # data parameter
-    parser.add_argument('--train_file', type=str, default='./data/train_shapes.h5', help='path to training file')
-    parser.add_argument('--val_file', type=str, default='./data/val_shapes.h5', help='path to val file')
+    parser.add_argument('--train_file', type=str, default='data/train_shapes.h5', help='path to training file')
+    parser.add_argument('--val_file', type=str, default='data/val_shapes.h5', help='path to val file')
     parser.add_argument('--batch_size', type=int, default=32, help='batch size of training and validating')
     parser.add_argument('--num_workers', type=int, default=4, help='num of threads for data loader')
     parser.add_argument('--model_name', type=str, default='program_generator', help='folder name to save model')

@@ -32,9 +32,9 @@ def get_parser():
                         help='furniture classes: chair, table, bed, sofa, cabinet, bench')
 
     # model info
-    parser.add_argument('--p_gen_path', type=str, default='./model/ckpts_program_generator/program_generator.t7',
+    parser.add_argument('--p_gen_path', type=str, default='./model/program_generator.t7',
                         help='path to the program generator')
-    parser.add_argument('--p_exe_path', type=str, default='./model/ckpts_program_executor/program_executor.t7',
+    parser.add_argument('--p_exe_path', type=str, default='./model/program_executor.t7',
                         help='path to the program executor')
     parser.add_argument('--model_name', type=str, default='GA', help='folder name to save model')
 

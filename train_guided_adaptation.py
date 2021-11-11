@@ -10,12 +10,12 @@ import torch.optim as optim
 import torch.backends.cudnn as cudnn
 from torch.utils.data import DataLoader
 
-from dataset import ShapeNet3D
+from dataset import VoxelsField, Shapes3dDataset, ShapeNet3D
 from model import BlockOuterNet, RenderNet
 from criterion import BatchIoU
 from misc import clip_gradient, decode_multiple_block
 from options import options_guided_adaptation
-
+from plot_voxels import plot_voxels
 
 def train(epoch, train_loader, generator, executor, soft, criterion, optimizer, opt):
     """
@@ -148,15 +148,37 @@ def run():
     if not os.path.isdir(opt.save_folder):
         os.makedirs(opt.save_folder)
 
+    # Visualize synthetic shapes
+    # syn_set = ShapeNet3D('data/chair_testing.h5')
+    # syn_voxels = syn_set[0]
+    # plot_voxels(syn_voxels, 'plots', 'syn_voxels.png')
+
     # build loaders
-    train_set = ShapeNet3D(opt.train_file)
+    voxel_field = VoxelsField('model.binvox')
+    categ_to_id = {'chair': '03001627', 'table': '04379243'}
+    categories = [categ_to_id[opt.cls]]
+
+    train_set = Shapes3dDataset(opt.data_folder,
+                                {'voxels': voxel_field},
+                                split='train',
+                                categories=categories)
+
+    print(train_set[0])
+
+    # Visualize shapenet shapes (to make sure rotation / axes are aligned with synthetic)
+    # shapenet_voxels = train_set[0]
+    # plot_voxels(shapenet_voxels, 'plots', 'shapenet_voxels.png')
+
     train_loader = DataLoader(
         dataset=train_set,
         batch_size=opt.batch_size,
         shuffle=True,
         num_workers=opt.num_workers,
     )
-    val_set = ShapeNet3D(opt.val_file)
+    val_set = Shapes3dDataset(opt.data_folder,
+                              {'voxels': voxel_field},
+                              split='val',
+                              categories=categories)
     val_loader = DataLoader(
         dataset=val_set,
         batch_size=opt.batch_size,
