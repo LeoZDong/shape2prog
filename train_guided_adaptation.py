@@ -108,7 +108,6 @@ def validate(epoch, val_loader, generator, opt, gen_shape=False):
 
     for idx, data in enumerate(val_loader):
         start = time.time()
-
         shapes = data
         shapes = torch.unsqueeze(shapes, 1)
 
@@ -164,7 +163,6 @@ def run():
         shuffle=False,
         num_workers=opt.num_workers,
     )
-
     # load program generator
     ckpt_p_gen = torch.load(opt.p_gen_path)
     generator = BlockOuterNet(ckpt_p_gen['opt'])
@@ -204,35 +202,35 @@ def run():
         print("###################")
         print("adaptation")
         train(epoch, train_loader, generator, executor, soft, criterion, optimizer, opt)
-        print("###################")
-        print("testing")
-        gen_shapes, ori_shapes = validate(epoch, val_loader, generator, opt,
-                                          gen_shape=True)
-        IoU = BatchIoU(ori_shapes, gen_shapes)
-        print("iou: ", IoU.mean())
+        # print("###################")
+        # print("testing")
+        # gen_shapes, ori_shapes = validate(epoch, val_loader, generator, opt,
+        #                                   gen_shape=True)
+        # IoU = BatchIoU(ori_shapes, gen_shapes)
+        # print("iou: ", IoU.mean())
 
-        if epoch % opt.save_interval == 0:
-            print('Saving...')
-            state = {
-                'opt': ckpt_p_gen['opt'],
-                'model': generator.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch': epoch,
-            }
-            save_file = os.path.join(opt.save_folder, 'ckpt_epoch_{epoch}.t7'.format(epoch=epoch))
-            torch.save(state, save_file)
-
-        if IoU.mean() >= best_iou:
-            print('Saving best model')
-            state = {
-                'opt': ckpt_p_gen['opt'],
-                'model': generator.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch': epoch,
-            }
-            save_file = os.path.join(opt.save_folder, 'program_generator_GA_{}.t7'.format(opt.cls))
-            torch.save(state, save_file)
-            best_iou = IoU.mean()
+        # if epoch % opt.save_interval == 0:
+        #     print('Saving...')
+        #     state = {
+        #         'opt': ckpt_p_gen['opt'],
+        #         'model': generator.state_dict(),
+        #         'optimizer': optimizer.state_dict(),
+        #         'epoch': epoch,
+        #     }
+        #     save_file = os.path.join(opt.save_folder, 'ckpt_epoch_{epoch}.t7'.format(epoch=epoch))
+        #     torch.save(state, save_file)
+        #
+        # if IoU.mean() >= best_iou:
+        #     print('Saving best model')
+        #     state = {
+        #         'opt': ckpt_p_gen['opt'],
+        #         'model': generator.state_dict(),
+        #         'optimizer': optimizer.state_dict(),
+        #         'epoch': epoch,
+        #     }
+        #     save_file = os.path.join(opt.save_folder, 'program_generator_GA_{}.t7'.format(opt.cls))
+        #     torch.save(state, save_file)
+        #     best_iou = IoU.mean()
 
 
 if __name__ == '__main__':

@@ -41,8 +41,8 @@ class Synthesis3D(Dataset):
     """
     def __init__(self, file_path, n_block=6, n_step=3, w1=1, w2=1):
         f = h5py.File(file_path, 'r')
-        self.data = np.array(f['data'])
-        self.labels = np.array(f['label'])
+        self.data = np.array(f['shape_data'])
+        self.labels = np.array(f['programs'])
         self.n_block = n_block
         self.n_step = n_step
         self.max_block = 0
@@ -161,7 +161,7 @@ class ShapeNet3D(Dataset):
         super(ShapeNet3D, self).__init__()
 
         f = h5py.File(file_path, "r")
-        self.data = np.array(f['data'])
+        self.data = np.array(f['shape_data'])
         self.num = self.data.shape[0]
 
     def __getitem__(self, index):

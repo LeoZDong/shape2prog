@@ -111,7 +111,7 @@ class BlockOuterNet(nn.Module):
 
             output, state = self.core(xt.unsqueeze(0), state)
             output = F.relu(output)
-            pgm, param = self.inner_net.decode(output.squeeze())
+            pgm, param = self.inner_net.decode(output.squeeze(0))
 
             outputs_pgm.append(pgm)
             outputs_param.append(param)
