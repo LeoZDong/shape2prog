@@ -115,6 +115,8 @@ ENV/
 # mypy
 .mypy_cache/
 
-plots
 plots/
 .vscode/
+model/
+logs/
+*_sbatch.sh

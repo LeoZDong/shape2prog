@@ -308,6 +308,7 @@ class Shapes3dDataset(Dataset):
 
         # Comment below when running train_debug.py
         data = self.change_data_format(data)
+
         return data
 
     def change_data_format(self, data):
@@ -315,6 +316,9 @@ class Shapes3dDataset(Dataset):
         voxels = data['voxels']
         voxels = np.swapaxes(voxels, 0, 1)
         voxels = np.flip(voxels, 1)
+        
+        # This step is necessary because torch dataloader does not work with negative stride
+        voxels = voxels.copy()
 
         return voxels
 
