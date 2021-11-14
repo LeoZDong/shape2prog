@@ -120,3 +120,4 @@ plots/
 model/
 logs/
 *_sbatch.sh
+output/

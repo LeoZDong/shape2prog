@@ -9,6 +9,9 @@ from programs.label_config import num_params, max_param
 from programs.loop_gen import translate, rotate, end
 import binvox_rw
 import yaml
+from misc import scale_voxels
+import trimesh
+
 
 class PartPrimitive(Dataset):
     """
@@ -181,7 +184,7 @@ class Shapes3dDataset(Dataset):
     Adopted from: https://github.com/autonomousvision/occupancy_networks
     """
 
-    def __init__(self, dataset_folder, fields, split=None, categories=None, i=-1):
+    def __init__(self, dataset_folder, fields, split=None, categories=None, scale_down=True):
         """Initialization of the the 3D shape dataset.
         Args:
             dataset_folder (str): dataset folder
@@ -189,12 +192,12 @@ class Shapes3dDataset(Dataset):
             split (str): which split is used
             categories (list): list of categories to use
         """
-        self.i = i  # For debugging
-
         # Attributes
         self.dataset_folder = dataset_folder
         self.split = split
         self.fields = fields
+        self.scale_down = scale_down
+        self.test_mode = 'pointcloud' in fields.keys()
 
         # Read metadata file
         metadata_file = os.path.join(dataset_folder, 'metadata.yaml')
@@ -260,19 +263,15 @@ class Shapes3dDataset(Dataset):
     def __len__(self):
         """Returns the length of the dataset.
         """
-        if self.i != -1:
-            return 2
-        else:
-            return len(self.models)
+        # DEBUG!
+        return len(self.models)
+        # return 32
 
     def __getitem__(self, idx):
         """Returns an item of the dataset.
         Args:
             idx (int): ID of data point
         """
-        if self.i != -1:
-            idx = 0
-
         category = self.models[idx]['category']
         model = self.models[idx]['model']
         c_idx = self.metadata[category]['idx']
@@ -284,14 +283,12 @@ class Shapes3dDataset(Dataset):
             try:
                 field_data = field.load(model_path, idx, c_idx)
             except Exception:
-                if self.no_except:
-                    print(
-                        'Error occured when loading field %s of model %s'
-                        % (field_name, model)
-                    )
-                    return None
-                else:
-                    raise
+                print(
+                    'Error occured when loading field %s of model %s'
+                    % (field_name, model)
+                )
+                print("model path:", model_path)
+                return None
 
             if isinstance(field_data, dict):
                 for k, v in field_data.items():
@@ -314,11 +311,20 @@ class Shapes3dDataset(Dataset):
     def change_data_format(self, data):
         """Change data output format."""
         voxels = data['voxels']
+        # NOTE: Debug: do not swap!!
         voxels = np.swapaxes(voxels, 0, 1)
         voxels = np.flip(voxels, 1)
-        
+
         # This step is necessary because torch dataloader does not work with negative stride
         voxels = voxels.copy()
+
+        # Scale down the longest side from 32 to 24
+        if self.scale_down:
+            voxels = scale_voxels(voxels, 0.75)
+
+        if self.test_mode:
+            data['voxels'] = voxels
+            return data
 
         return voxels
 
@@ -364,3 +370,102 @@ class VoxelsField(object):
         '''
         complete = (self.file_name in files)
         return complete
+
+
+class PointCloudField(object):
+    ''' Point cloud field.
+    It provides the field used for point cloud data. These are the points
+    randomly sampled on the mesh.
+    Args:
+        file_name (str): file name
+        transform (list): list of transformations applied to data points
+        with_transforms (bool): whether scaling and rotation dat should be
+            provided
+    '''
+    def __init__(self, file_name, transform=None, with_transforms=False):
+        self.file_name = file_name
+        self.transform = transform
+        self.with_transforms = with_transforms
+
+    def load(self, model_path, idx, category):
+        ''' Loads the data point.
+        Args:
+            model_path (str): path to model
+            idx (int): ID of data point
+            category (int): index of category
+        '''
+        file_path = os.path.join(model_path, self.file_name)
+
+        pointcloud_dict = np.load(file_path)
+
+        points = pointcloud_dict['points'].astype(np.float32)
+        normals = pointcloud_dict['normals'].astype(np.float32)
+
+        data = {
+            None: points,
+            'normals': normals,
+        }
+
+        if self.with_transforms:
+            data['loc'] = pointcloud_dict['loc'].astype(np.float32)
+            data['scale'] = pointcloud_dict['scale'].astype(np.float32)
+
+        if self.transform is not None:
+            data = self.transform(data)
+
+        return data
+
+    def check_complete(self, files):
+        ''' Check if field is complete.
+        
+        Args:
+            files: files
+        '''
+        complete = (self.file_name in files)
+        return complete
+
+
+class PointsField(object):
+    """Point Field.
+    It provides the field to load point data. This is used for the points
+    randomly sampled in the bounding volume of the 3D shape.
+    Args:
+        file_name (str): file name
+        transform (list): list of transformations which will be applied to the
+            points tensor
+        with_transforms (bool): whether scaling and rotation data should be
+            provided
+    """
+    def __init__(self, file_name, unpackbits=False):
+        self.file_name = file_name
+        self.unpackbits = unpackbits
+
+    def load(self, model_path, idx, category):
+        """Loads the data point.
+        Args:
+            model_path (str): path to model
+            idx (int): ID of data point
+            category (int): index of category
+        """
+        file_path = os.path.join(model_path, self.file_name)
+
+        points_dict = np.load(file_path)
+        points = points_dict['points']
+        # Break symmetry if given in float16:
+        if points.dtype == np.float16:
+            points = points.astype(np.float32)
+            points += 1e-4 * np.random.randn(*points.shape)
+        else:
+            points = points.astype(np.float32)
+
+        occupancies = points_dict['occupancies']
+        if self.unpackbits:
+            occupancies = np.unpackbits(occupancies)[:points.shape[0]]
+        occupancies = occupancies.astype(np.float32)
+
+        data = {
+            None: points,
+            'occ': occupancies,
+        }
+
+        return data

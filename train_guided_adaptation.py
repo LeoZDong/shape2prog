@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from dataset import VoxelsField, Shapes3dDataset, ShapeNet3D
 from model import BlockOuterNet, RenderNet
 from criterion import BatchIoU
-from misc import clip_gradient, decode_multiple_block
+from misc import clip_gradient, decode_multiple_block, scale_voxels
 from options import options_guided_adaptation
 from plot_voxels import plot_voxels
 
@@ -153,19 +153,36 @@ def run():
     # syn_voxels = syn_set[0]
     # plot_voxels(syn_voxels, 'plots', 'syn_voxels.png')
 
-    # build loaders
+    #### Switch to custom ShapeNet data loader ####
     voxel_field = VoxelsField('model.binvox')
     categ_to_id = {'chair': '03001627', 'table': '04379243'}
     categories = [categ_to_id[opt.cls]]
 
+    if opt.scale_down:
+        print("Scale down longest side from 32 to 24!")
+
     train_set = Shapes3dDataset(opt.data_folder,
                                 {'voxels': voxel_field},
                                 split='train',
-                                categories=categories)
-
+                                categories=categories,
+                                scale_down=opt.scale_down)
+    print("Train set size:", len(train_set))
     # Visualize shapenet shapes (to make sure rotation / axes are aligned with synthetic)
     # shapenet_voxels = train_set[0]
     # plot_voxels(shapenet_voxels, 'plots', 'shapenet_voxels.png')
+    # plot_voxels(scale_voxels(shapenet_voxels, 0.75), 'plots', 'shapenet_voxels_rescale.png')
+
+    val_set = Shapes3dDataset(opt.data_folder, {'voxels': voxel_field},
+                              split='val',
+                              categories=categories,
+                              scale_down=opt.scale_down)
+    print("Val set size:", len(val_set))
+
+    #### Use original ShapeNet data loader ####
+    # train_set = ShapeNet3D(opt.train_file)
+    # print("Train set size:", len(train_set))
+    # val_set = ShapeNet3D(opt.val_file)
+    # print("Val set size:", len(val_set))
 
     train_loader = DataLoader(
         dataset=train_set,
@@ -173,10 +190,6 @@ def run():
         shuffle=True,
         num_workers=opt.num_workers,
     )
-    val_set = Shapes3dDataset(opt.data_folder,
-                              {'voxels': voxel_field},
-                              split='val',
-                              categories=categories)
 
     val_loader = DataLoader(
         dataset=val_set,
@@ -184,8 +197,10 @@ def run():
         shuffle=False,
         num_workers=opt.num_workers,
     )
+
     # load program generator
     ckpt_p_gen = torch.load(opt.p_gen_path)
+    # ckpt_p_gen = torch.load('model/program_generator_GA_chair.t7')
     generator = BlockOuterNet(ckpt_p_gen['opt'])
     generator.load_state_dict(ckpt_p_gen['model'])
 
@@ -216,6 +231,7 @@ def run():
                                       gen_shape=True)
     IoU = BatchIoU(ori_shapes, gen_shapes)
     print("iou: ", IoU.mean())
+    # exit()
 
     best_iou = 0
 
@@ -240,7 +256,7 @@ def run():
             }
             save_file = os.path.join(opt.save_folder, 'ckpt_epoch_{epoch}.t7'.format(epoch=epoch))
             torch.save(state, save_file)
-        
+
         if IoU.mean() >= best_iou:
             print('Saving best model')
             state = {

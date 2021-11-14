@@ -24,6 +24,240 @@ from programs.utils import draw_back_support as draw_back_support_new
 
 from programs.loop_gen import decode_loop, translate, rotate, end
 
+from scipy.ndimage import zoom
+import pytorch3d
+from pytorch3d.ops import cubify
+import open3d as o3d
+import os
+
+def scale_voxels(voxelgrid, scale):
+    """LeoZDong addition: Scale (down) voxels to make the longest side shorter.
+    shape2prog trained with a cuztom voxelization where the longest side 24, but 
+    ShapeNet's default voxelization has longest side 32.
+    Args:
+        voxelgrid (np.ndarray): (32, 32, 32)
+        scale (float): less than 1 downscale factor
+    """
+    assert scale < 1
+    scaled_voxel = (zoom(voxelgrid, scale) > 0.5).astype(int)
+
+    # Pad with zeros to match the old size
+    old_size = voxelgrid.shape[0]
+    new_size = scaled_voxel.shape[0]
+    pad_size = old_size - new_size
+    assert pad_size % 2 == 0
+    pad_size //= 2
+    scaled_voxel = np.pad(scaled_voxel, pad_size)
+
+    return scaled_voxel
+
+
+def voxel_to_aligned_mesh(voxelgrid, target_sizes, target_centers):
+    """LeoZDong addition: Convert voxels to mesh with rescaling and recentering.
+    Args:
+        target_sizes (torch.Tensor): (N,) Size of the longest side of the mesh after rescaling.
+        target_centers (torch.Tensor): (N, 3) Center of the mesh after aligning.
+    """
+    # Un-rotate the voxels to shapenet voxel rotation
+    voxelgrid = voxelgrid.copy()
+    voxelgrid = np.flip(voxelgrid, 2)
+    voxelgrid = np.swapaxes(voxelgrid, 1, 2)
+
+    # Important note: occnet pointcloud is not aligned with shapenet voxel!
+    # I need to do `gt_pc = torch.stack((z, y, x), 1)` to get the occnet
+    # pointcloud in same orientation as the voxel
+    # Need to do additional step to align with occnet pointcloud
+    voxelgrid = np.swapaxes(voxelgrid, 1, 3)
+
+    # Deal with empty voxelgrid predictions
+    for i, vox in enumerate(voxelgrid):
+        if vox.sum() == 0:
+            voxelgrid[i, 0, 0] = 1
+
+    # import ipdb; ipdb.set_trace()
+    voxelgrid = torch.tensor(voxelgrid.copy())
+    meshes = cubify(voxelgrid, 0.5, align="center")
+    bbox = meshes.get_bounding_boxes()
+
+
+    vox_mesh_centers = (bbox[:, :, 1] + bbox[:, :, 0]) / 2
+    offsets = target_centers - vox_mesh_centers
+    offsets_packed = []
+    for i, verts in enumerate(meshes.verts_list()):
+        offsets_packed.append(offsets[i].repeat(len(verts), 1))
+
+    offsets_packed = torch.cat(offsets_packed, 0)
+
+    mesh_sizes = (bbox[:, :, 1] - bbox[:, :, 0]).max(1).values
+    scales = target_sizes / mesh_sizes
+
+    meshes.offset_verts_(offsets_packed)
+    meshes.scale_verts_(scales)
+
+    return meshes
+
+
+def vox_mesh_iou(voxelgrid, mesh_size, mesh_center, points, points_occ, vox_side_len=24, pc=None):
+    """LeoZDong addition: Compare iou between voxel and mesh (represented as
+    points sampled uniformly inside the mesh). Everything is a single element 
+    (i.e. no batch dimension).
+    """
+    # Un-rotate voxels to pointcloud orientation
+    voxelgrid = voxelgrid.copy()
+    voxelgrid = np.flip(voxelgrid, 1)
+    voxelgrid = np.swapaxes(voxelgrid, 0, 1)
+    # voxelgrid = np.swapaxes(voxelgrid, 0, 2)
+
+    # Find voxel centers as if they are in a [-0.5, 0.5] bbox
+    vox_center = get_vox_centers(voxelgrid)
+
+    # Rescale points so that the mesh object is 0-centered and has longest side
+    # to be 0.75 (vox_side_len=24 / 32)
+    points += vox_center - mesh_center
+    scale = (vox_side_len / voxelgrid.shape[0]) / mesh_size
+    points *= scale
+
+    # import ipdb; ipdb.set_trace()
+    cond = np.stack((points.min(1) > -0.5, points.max(1) < 0.5), 0)
+    in_bounds = np.all(cond, 0)
+    vox_occ = np.zeros_like(points_occ)
+    vox_occ[in_bounds] = points_occ_in_voxel(voxelgrid, points[in_bounds, :])
+
+    # Find occupancy in voxel for the query points
+    # vox_occ = points_occ_in_voxel(voxelgrid, points)
+    iou = occ_iou(points_occ, vox_occ)
+
+    #### DEBUG ####
+    # vox_occ_points = points[vox_occ > 0.5]
+    # gt_occ_points = points[points_occ > 0.5]
+    # int_occ_points = points[(vox_occ * points_occ) > 0.5]
+
+    # save_dir = '/viscam/u/leozdong/shape2prog/output/chair/GA_24/meshes/table/cd5f235344ff4c10d5b24cafb84903c7'
+    # save_ply(vox_occ_points, os.path.join(save_dir, 'vox_occ_points.ply'))
+    # save_ply(gt_occ_points, os.path.join(save_dir, 'gt_occ_points.ply'))
+    # save_ply(int_occ_points, os.path.join(save_dir, 'int_occ_points.ply'))
+
+    # print("iou:", iou)
+    return iou
+
+def save_ply(pointcloud, save_file):
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(pointcloud)
+    o3d.io.write_point_cloud(save_file, pcd)
+
+def vox_mesh_iou_batch(voxelgrids, mesh_sizes, mesh_centers, points, points_occ, vox_side_len=24, pc=None):
+    ious = []
+    for i in range(len(voxelgrids)):
+        voxelgrid = voxelgrids[i]
+        mesh_size = mesh_sizes[i]
+        mesh_center = mesh_centers[i]
+        points_i = points[i]
+        points_occ_i = points_occ[i]
+        iou = vox_mesh_iou(voxelgrid,
+                           mesh_size,
+                           mesh_center,
+                           points_i,
+                           points_occ_i,
+                           vox_side_len)
+        ious.append(iou)
+
+    return ious
+
+
+def points_occ_in_voxel(voxel, points):
+    """LeoZDong addition: Get point occupancy for a single voxel grid.
+    Args:
+        voxel (np.ndarray): (grid_size, grid_size, grid_size)
+        points (np.ndarray): (n_points, 3)
+    """
+    # Get voxel indices that each point falls in
+    vox_grid_size = voxel.shape[0]
+    vox_idx = np.floor((points + 0.5) * vox_grid_size).astype(int)
+
+    # Clamp because sometimes numerical instability gets a vox_idx rounded to 32
+    vox_idx = np.clip(vox_idx, 0, 31).astype(int)
+
+    points_occ = voxel[vox_idx[:, 0], vox_idx[:, 1], vox_idx[:, 2]]
+
+    return points_occ
+
+
+def occ_iou(occ1, occ2):
+    """Computes the Intersection over Union (IoU) value for two sets of occupancy
+    values.
+    Adopted from Occupancy Networks repo.
+    Args:
+        occ1 (tensor): first set of occupancy values
+        occ2 (tensor): second set of occupancy values
+    """
+    occ1 = np.asarray(occ1)
+    occ2 = np.asarray(occ2)
+
+    # Put all data in second dimension
+    # Also works for 1-dimensional data
+    if occ1.ndim >= 2:
+        occ1 = occ1.reshape(occ1.shape[0], -1)
+    if occ2.ndim >= 2:
+        occ2 = occ2.reshape(occ2.shape[0], -1)
+
+    # Convert to boolean values
+    occ1 = (occ1 >= 0.5)
+    occ2 = (occ2 >= 0.5)
+
+    # Compute IoU
+    area_union = (occ1 | occ2).astype(np.float32).sum(axis=-1)
+    area_intersect = (occ1 & occ2).astype(np.float32).sum(axis=-1)
+
+    iou = (area_intersect / area_union)
+
+    return iou
+
+
+def get_sizes_and_centers(pointcloud):
+    """LeoZDong addition: Calculate target sizes and centers from target pointcloud."""
+    x_max = pointcloud[:, :, 0].max(1).values
+    x_min = pointcloud[:, :, 0].min(1).values
+    x_sizes = x_max - x_min
+    x_centers = (x_max + x_min) / 2
+
+    y_max = pointcloud[:, :, 1].max(1).values
+    y_min = pointcloud[:, :, 1].min(1).values
+    y_sizes = y_max - y_min
+    y_centers = (y_max + y_min) / 2
+
+    z_max = pointcloud[:, :, 2].max(1).values
+    z_min = pointcloud[:, :, 2].min(1).values
+    z_sizes = z_max - z_min
+    z_centers = (z_max + z_min) / 2
+
+    sizes = torch.stack((x_sizes, y_sizes, z_sizes), 1).max(1).values
+    centers = torch.stack((x_centers, y_centers, z_centers), 1)
+
+    return sizes, centers
+
+def get_vox_centers(voxelgrid):
+    """Find the voxel center as if it is in a [-.5, .5] bbox.
+    This applies to a single voxelgrid, i.e. no batch dimension.
+    """
+    if voxelgrid.sum() == 0:
+        return np.zeros((3,))
+
+    grid_size = voxelgrid.shape[0]
+    x_occ, y_occ, z_occ = np.where(voxelgrid > 0.5)
+    x_min = min(x_occ) / grid_size
+    x_max = (max(x_occ) + 1) / grid_size
+    x_center = (x_min + x_max) / 2 - 0.5
+
+    y_min = min(y_occ) / grid_size
+    y_max = (max(y_occ) + 1) / grid_size
+    y_center = (y_min + y_max) / 2 - 0.5
+
+    z_min = min(z_occ) / grid_size
+    z_max = (max(z_occ) + 1) / grid_size
+    z_center = (z_min + z_max) / 2 - 0.5
+
+    return np.array((x_center, y_center, z_center))
+
 
 def get_distance_to_center():
     x = np.arange(32)

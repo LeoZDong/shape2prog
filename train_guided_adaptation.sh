@@ -1,1 +1,1 @@
-CUDA_VISIBLE_DEVICES=0 python train_guided_adaptation.py --cls chair --save_interval 5 --data_folder /viscam/data/ShapeNet.v1_OccNetPC/ShapeNet --num_workers 8 |& tee logs/GA_chair.txt
+CUDA_VISIBLE_DEVICES=0 python train_guided_adaptation.py --cls table --save_interval 10 --data_folder /viscam/data/ShapeNet.v1_OccNetPC/ShapeNet --num_workers 8 --epochs 20 --scale_down --model_name GA_24 |& tee logs/GA_24_table.txt

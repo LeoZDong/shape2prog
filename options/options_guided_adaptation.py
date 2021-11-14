@@ -25,6 +25,7 @@ def get_parser():
     parser.add_argument('--save_interval', type=int, default=5, help='freq for saving model')
 
     # data info
+    parser.add_argument('--scale_down', action='store_true', default=False)
     parser.add_argument('--batch_size', type=int, default=32, help='batch size of GA')
     parser.add_argument('--num_workers', type=int, default=4, help='number of workers')
     parser.add_argument('--data_folder', type=str, default='./data/', help='directory to data')
@@ -50,8 +51,8 @@ def parse():
 
     opt.save_folder = os.path.join('./model', 'ckpts_{}_{}'.format(opt.model_name, opt.cls))
 
-    opt.train_file = os.path.join(opt.data_folder, '{}_training.h5'.format(opt.cls))
-    opt.val_file = os.path.join(opt.data_folder, '{}_testing.h5'.format(opt.cls))
+    opt.train_file = os.path.join('data', '{}_training.h5'.format(opt.cls))
+    opt.val_file = os.path.join('data', '{}_testing.h5'.format(opt.cls))
 
     if opt.cls in ['chair', 'table']:
         pass
