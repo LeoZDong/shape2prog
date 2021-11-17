@@ -1,1 +1,1 @@
-python test.py --data_folder /viscam/data/ShapeNet.v1_OccNetPC/ShapeNet --save_prog --num_render 2000 --cls table --model_name GA_32 |& tee logs/table_32_test.txt
+python test.py --data_folder /viscam/data/ShapeNet.v1_OccNetPC/ShapeNet --num_render 2000 --cls chair --model_name GA_24 --scale_down --num_workers 2 --segpoints #--save_prog --save_shapes #|& tee logs/chair_24_test.txt

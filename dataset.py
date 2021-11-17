@@ -184,7 +184,8 @@ class Shapes3dDataset(Dataset):
     Adopted from: https://github.com/autonomousvision/occupancy_networks
     """
 
-    def __init__(self, dataset_folder, fields, split=None, categories=None, scale_down=True):
+    def __init__(self, dataset_folder, fields, split=None, categories=None, scale_down=True,
+                 segpoints=False):
         """Initialization of the the 3D shape dataset.
         Args:
             dataset_folder (str): dataset folder
@@ -198,6 +199,16 @@ class Shapes3dDataset(Dataset):
         self.fields = fields
         self.scale_down = scale_down
         self.test_mode = 'pointcloud' in fields.keys()
+
+        # Auxiliary information for segmentation prediction
+        if segpoints:
+            assert len(categories) == 1
+            assert split[-5:] == 'parts'
+            id_to_categ = {'03001627': 'chair', '04379243': 'table'}
+            self.segpoints_folder = os.path.join(
+                '/svl/u/bydeng/datasets/shapenet_part/points_and_labels',
+                id_to_categ[categories[0]],
+                split[:-6])
 
         # Read metadata file
         metadata_file = os.path.join(dataset_folder, 'metadata.yaml')
@@ -276,6 +287,10 @@ class Shapes3dDataset(Dataset):
         model = self.models[idx]['model']
         c_idx = self.metadata[category]['idx']
 
+        # Hack: this model doesn't load with others in `test_parts.lst`
+        # Separately set model string and set __len__ to be a small number to run.
+        # model = 'uca24feec-f0c0-454c-baaf-561530686f40'
+
         model_path = os.path.join(self.dataset_folder, category, model)
         data = {}
 
@@ -288,6 +303,8 @@ class Shapes3dDataset(Dataset):
                     % (field_name, model)
                 )
                 print("model path:", model_path)
+                print("idx:", idx)
+                print("c_idx:", c_idx)
                 return None
 
             if isinstance(field_data, dict):
@@ -323,7 +340,19 @@ class Shapes3dDataset(Dataset):
             voxels = scale_voxels(voxels, 0.75)
 
         if self.test_mode:
+            # Save voxels as an additional key
             data['voxels'] = voxels
+
+            # Load and save the segpoints
+            id = data['id']
+            segpoints_path = os.path.join(self.segpoints_folder, id,
+                                          'segpoints.npy')
+            segpoints = np.load(segpoints_path, allow_pickle=True).item()['points']
+            segpoints_padded = np.zeros((5000, 3))
+            segpoints_padded[:len(segpoints)] = segpoints
+            data['segpoints'] = segpoints_padded
+            data['segpoints_n'] = len(segpoints)
+
             return data
 
         return voxels

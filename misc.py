@@ -29,6 +29,7 @@ import pytorch3d
 from pytorch3d.ops import cubify
 import open3d as o3d
 import os
+import time
 
 def scale_voxels(voxelgrid, scale):
     """LeoZDong addition: Scale (down) voxels to make the longest side shorter.
@@ -50,6 +51,84 @@ def scale_voxels(voxelgrid, scale):
     scaled_voxel = np.pad(scaled_voxel, pad_size)
 
     return scaled_voxel
+
+
+def get_segpoints_labels_batch(segpoints, voxelgrid_labels, mesh_center, mesh_size,
+                               vox_side_len=24):
+    segpoints_labels = []
+
+    for i in range(len(segpoints)):
+        t = time.time()
+        segpoints_labels_i = get_segpoints_labels(segpoints[i],
+                                                  voxelgrid_labels[i],
+                                                  mesh_center[i],
+                                                  mesh_size[i],
+                                                  vox_side_len)
+        segpoints_labels.append(segpoints_labels_i)
+        # print("segpoints labels one shape time:", round(time.time() - t, 3))
+
+    return np.stack(segpoints_labels, 0)
+
+
+def get_segpoints_labels(segpoints, voxelgrid_labels, mesh_center, mesh_size,
+                         vox_side_len=24):
+    """LeoZDong addition: Query segmentation point labels based on labeled 
+    voxelgrid. This is for a single item.
+    Args:
+        segpoints (ndarray): (npoints, 3)
+        voxelgrid_labels (ndarray): (32, 32, 32) -1 for empty voxel and other 
+            numbers for part / primitive ids.
+        mesh_center (float)
+        mesh_size (float)
+    Returns: (npoints, ) Labeled ID for each segpoint.
+    """
+    # Un-rotate voxels to pointcloud orientation
+    voxelgrid_labels = voxelgrid_labels.copy()
+    voxelgrid_labels = np.flip(voxelgrid_labels, 1)
+    voxelgrid_labels = np.swapaxes(voxelgrid_labels, 0, 1)
+    # voxelgrid = np.swapaxes(voxelgrid, 0, 2)
+
+    # Extract voxelgrid from voxelgrid_labels
+    voxelgrid = (voxelgrid_labels >= 0).astype(int)
+
+    # Find voxel centers as if they are in a [-0.5, 0.5] bbox
+    vox_center = get_vox_centers(voxelgrid)
+
+    # Rescale points so that the mesh object is 0-centered and has longest side
+    # to be 0.75 (vox_side_len=24 / 32)
+    segpoints += vox_center - mesh_center
+    scale = (vox_side_len / voxelgrid.shape[0]) / mesh_size
+    segpoints *= scale
+
+    # Initialize labels to -1 (no label)
+    segpoints_labels = np.ones((len(segpoints),)) * -1
+    in_bounds_cond = np.stack((segpoints.min(1) > -0.5, segpoints.max(1) < 0.5), 0)
+    in_bounds = np.all(in_bounds_cond, 0)
+    # Can use the same function to find voxel label instead of voxel occ
+    in_bounds_labels = points_occ_in_voxel(voxelgrid_labels, segpoints[in_bounds, :])
+    segpoints_labels[in_bounds] = in_bounds_labels
+
+    # Deal with points that do not fall into occupied blocks
+    assigned_idx = np.where(segpoints_labels >= 0)
+    unassigned_idx = np.where(segpoints_labels < 0)
+    if len(unassigned_idx[0]) == 0:
+        return segpoints_labels
+    if len(assigned_idx[0]) == 0:
+        print("Misses completely!")
+        return np.zeros((len(segpoints), ))
+    # For each unassigned point, find its nearest neighbor among assigned points
+    # and set its label to that assigned point's label.
+    assigned_points = segpoints[assigned_idx]
+    unassigned_points = segpoints[unassigned_idx]
+    pairwise_dists = np.linalg.norm(unassigned_points[:, None, :] - assigned_points[None, :, :],
+                                    axis=-1)
+    try:
+        nearest_assigned_point_idx = assigned_idx[0][np.argmax(-pairwise_dists, 1)]
+    except:
+        import ipdb; ipdb.set_trace()
+    segpoints_labels[unassigned_idx] = segpoints_labels[nearest_assigned_point_idx]
+
+    return segpoints_labels
 
 
 def voxel_to_aligned_mesh(voxelgrid, target_sizes, target_centers):
@@ -78,7 +157,6 @@ def voxel_to_aligned_mesh(voxelgrid, target_sizes, target_centers):
     voxelgrid = torch.tensor(voxelgrid.copy())
     meshes = cubify(voxelgrid, 0.5, align="center")
     bbox = meshes.get_bounding_boxes()
-
 
     vox_mesh_centers = (bbox[:, :, 1] + bbox[:, :, 0]) / 2
     offsets = target_centers - vox_mesh_centers
@@ -550,6 +628,67 @@ def decode_multiple_block(pgm, param):
     return data
 
 
+def decode_multiple_block_part_label(pgm, param):
+    """LeoZDong addition: label each occupied voxel by their *part*
+    (e.g. all 4 legs of a table is the same part)
+    decode and execute multiple blocks
+    Return the part index at each occupied block.
+    """
+    # pgm: bsz x n_block x n_step x n_class
+    # param: bsz x n_block x n_step x n_class
+    bsz = pgm.size(0)
+    n_block = pgm.size(1)
+    # NOTE: Unoccupied voxels are labeled -1 now!
+    part_labels = np.ones((bsz, 32, 32, 32), dtype=np.uint8) * -1
+    for i in range(n_block):
+        label = i
+        if pgm.dim() == 4:
+            prob_pre = torch.exp(pgm[:, i, :, :].data)
+            _, it1 = torch.max(prob_pre, dim=2)
+        elif pgm.dim() == 3:
+            it1 = pgm[:, i, :]
+        else:
+            raise NotImplementedError('pgm has incorrect dimension')
+        it2 = param[:, i, :, :].data.clone()
+        it1 = it1.cpu().numpy()
+        it2 = it2.cpu().numpy()
+        part_labels = render_block_part_label(part_labels, it1, it2, label)
+
+    return part_labels
+
+
+def decode_multiple_block_primitive_label(pgm, param):
+    """LeoZDong addition: label each occupied voxel by their *primitive*
+    (e.g. each of the 4 legs of a table is a different primitive)
+    decode and execute multiple blocks
+    Return the part index at each occupied block.
+    """
+    # pgm: bsz x n_block x n_step x n_class
+    # param: bsz x n_block x n_step x n_class
+    bsz = pgm.size(0)
+    n_block = pgm.size(1)
+    # NOTE: Unoccupied voxels are labeled -1 now!
+    primitive_labels = np.ones((bsz, 32, 32, 32), dtype=np.uint8) * -1
+
+    bsz = pgm.shape[0]
+    start_label = np.zeros((bsz, ))
+    for i in range(n_block):
+        if pgm.dim() == 4:
+            prob_pre = torch.exp(pgm[:, i, :, :].data)
+            _, it1 = torch.max(prob_pre, dim=2)
+        elif pgm.dim() == 3:
+            it1 = pgm[:, i, :]
+        else:
+            raise NotImplementedError('pgm has incorrect dimension')
+        it2 = param[:, i, :, :].data.clone()
+        it1 = it1.cpu().numpy()
+        it2 = it2.cpu().numpy()
+        primitive_labels = render_block_primitive_label(
+            primitive_labels, it1, it2, start_label)
+
+    return primitive_labels
+
+
 def count_blocks(pgm):
     """
     count the number of effective blocks
@@ -598,48 +737,84 @@ def render_block(data, pgm, param):
     return data
 
 
-def render_one_step_new(data, pgm, param):
+def render_block_part_label(data, pgm, param, label):
+    """LeoZDong addition: return part label at occupied voxels instead of 0/1.
+    render one single block
     """
+    param = np.round(param).astype(np.int32)
+    bsz = data.shape[0]
+    for i in range(bsz):
+        loop_free = decode_pgm(pgm[i], param[i])
+        cur_pgm = loop_free[:, 0]
+        cur_param = loop_free[:, 1:]
+        for j in range(len(cur_pgm)):
+            data[i] = render_one_step_new(data[i], cur_pgm[j], cur_param[j], label=label)
+
+    return data
+
+
+def render_block_primitive_label(data, pgm, param, start_label):
+    """LeoZDong addition: return primitive label at occupied voxels instead of 0/1.
+    render one single block
+    """
+    param = np.round(param).astype(np.int32)
+    bsz = data.shape[0]
+    for i in range(bsz):
+        loop_free = decode_pgm(pgm[i], param[i])
+        cur_pgm = loop_free[:, 0]
+        cur_param = loop_free[:, 1:]
+        for j in range(len(cur_pgm)):
+            data[i] = render_one_step_new(data[i],
+                                          cur_pgm[j],
+                                          cur_param[j],
+                                          label=start_label[i])
+            start_label[i] += 1
+
+    return data
+
+
+def render_one_step_new(data, pgm, param, label=None):
+    """LeoZDong edit: take label as parameter to each draw command.
     render one step
     """
     if pgm == 0:
         pass
     elif pgm == 1:
-        data = draw_vertical_leg_new(data, param[0], param[1], param[2], param[3], param[4], param[5])[0]
+        data = draw_vertical_leg_new(data, param[0], param[1], param[2], param[3], param[4], param[5], label=label)[0]
     elif pgm == 2:
-        data = draw_rectangle_top_new(data, param[0], param[1], param[2], param[3], param[4], param[5])[0]
+        data = draw_rectangle_top_new(data, param[0], param[1], param[2], param[3], param[4], param[5], label=label)[0]
     elif pgm == 3:
-        data = draw_square_top_new(data, param[0], param[1], param[2], param[3], param[4])[0]
+        data = draw_square_top_new(data, param[0], param[1], param[2], param[3], param[4], label=label)[0]
     elif pgm == 4:
-        data = draw_circle_top_new(data, param[0], param[1], param[2], param[3], param[4])[0]
+        data = draw_circle_top_new(data, param[0], param[1], param[2], param[3], param[4], label=label)[0]
     elif pgm == 5:
-        data = draw_middle_rect_layer_new(data, param[0], param[1], param[2], param[3], param[4], param[5])[0]
+        data = draw_middle_rect_layer_new(data, param[0], param[1], param[2], param[3], param[4], param[5], label=label)[0]
     elif pgm == 6:
-        data = draw_circle_support_new(data, param[0], param[1], param[2], param[3], param[4])[0]
+        data = draw_circle_support_new(data, param[0], param[1], param[2], param[3], param[4], label=label)[0]
     elif pgm == 7:
-        data = draw_square_support_new(data, param[0], param[1], param[2], param[3], param[4])[0]
+        data = draw_square_support_new(data, param[0], param[1], param[2], param[3], param[4], label=label)[0]
     elif pgm == 8:
-        data = draw_circle_base_new(data, param[0], param[1], param[2], param[3], param[4])[0]
+        data = draw_circle_base_new(data, param[0], param[1], param[2], param[3], param[4], label=label)[0]
     elif pgm == 9:
-        data = draw_square_base_new(data, param[0], param[1], param[2], param[3], param[4])[0]
+        data = draw_square_base_new(data, param[0], param[1], param[2], param[3], param[4], label=label)[0]
     elif pgm == 10:
-        data = draw_cross_base_new(data, param[0], param[1], param[2], param[3], param[4], param[5])[0]
+        data = draw_cross_base_new(data, param[0], param[1], param[2], param[3], param[4], param[5], label=label)[0]
     elif pgm == 11:
-        data = draw_sideboard_new(data, param[0], param[1], param[2], param[3], param[4], param[5])[0]
+        data = draw_sideboard_new(data, param[0], param[1], param[2], param[3], param[4], param[5], label=label)[0]
     elif pgm == 12:
-        data = draw_horizontal_bar_new(data, param[0], param[1], param[2], param[3], param[4], param[5])[0]
+        data = draw_horizontal_bar_new(data, param[0], param[1], param[2], param[3], param[4], param[5], label=label)[0]
     elif pgm == 13:
-        data = draw_vertboard_new(data, param[0], param[1], param[2], param[3], param[4], param[5])[0]
+        data = draw_vertboard_new(data, param[0], param[1], param[2], param[3], param[4], param[5], label=label)[0]
     elif pgm == 14:
-        data = draw_locker_new(data, param[0], param[1], param[2], param[3], param[4], param[5])[0]
+        data = draw_locker_new(data, param[0], param[1], param[2], param[3], param[4], param[5], label=label)[0]
     elif pgm == 15:
-        data = draw_tilt_back_new(data, param[0], param[1], param[2], param[3], param[4], param[5], param[6])[0]
+        data = draw_tilt_back_new(data, param[0], param[1], param[2], param[3], param[4], param[5], param[6], label=label)[0]
     elif pgm == 16:
-        data = draw_chair_beam_new(data, param[0], param[1], param[2], param[3], param[4], param[5])[0]
+        data = draw_chair_beam_new(data, param[0], param[1], param[2], param[3], param[4], param[5], label=label)[0]
     elif pgm == 17:
-        data = draw_line_new(data, param[0], param[1], param[2], param[3], param[4], param[5], param[6])[0]
+        data = draw_line_new(data, param[0], param[1], param[2], param[3], param[4], param[5], param[6], label=label)[0]
     elif pgm == 18:
-        data = draw_back_support_new(data, param[0], param[1], param[2], param[3], param[4], param[5])[0]
+        data = draw_back_support_new(data, param[0], param[1], param[2], param[3], param[4], param[5], label=label)[0]
     else:
         raise RuntimeError("program id is out of range, pgm={}".format(pgm))
 
@@ -662,3 +837,17 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+# LeoZDong addition: 6 high contrast colors
+HIGH_CONTRAST = np.zeros((10, 3))
+HIGH_CONTRAST[0] = [137, 49, 239]
+HIGH_CONTRAST[1] = [242, 202, 25]
+HIGH_CONTRAST[2] = [255, 0, 189]
+HIGH_CONTRAST[3] = [0, 87, 233]
+HIGH_CONTRAST[4] = [135, 233, 17]
+HIGH_CONTRAST[5] = [225, 24, 69]
+HIGH_CONTRAST[6] = [0, 0, 0]
+HIGH_CONTRAST[7] = [0, 255, 0]
+HIGH_CONTRAST[8] = [0, 0, 255]
+HIGH_CONTRAST[9] = [225, 0, 0]
+HIGH_CONTRAST /= 255

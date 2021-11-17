@@ -10,8 +10,8 @@ class Interpreter(object):
         self.rotate = rotate
         self.end = end
 
-    def interpret(self, pgm, param):
-
+    def interpret(self, pgm, param, return_n_parts=False):
+        n_parts = 0
         n_block = pgm.shape[0]
         param = np.round(param).astype(np.int32)
 
@@ -23,7 +23,10 @@ class Interpreter(object):
             else:
                 result += res
                 result += "\n"
-
+                n_parts += 1
+        if return_n_parts:
+            return result, n_parts
+            
         return result
 
     def interpret_block(self, pgm, param):

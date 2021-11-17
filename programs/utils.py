@@ -6,123 +6,131 @@ from numpy.linalg import norm
 # all the positions here are relative
 # positions to center (16, 16, 16)
 ###########################
+"""LeoZDong addition: add option to return a part label id instead of 0/1 occupancy."""
 
-
-def draw_vertical_leg(data, h, s1, s2, t, r1, r2):
+def draw_vertical_leg(data, h, s1, s2, t, r1, r2, label=None):
     """
     "Leg", "Cuboid"
     :param (h, s1, s2): position
     :param (t, r1, r2): shape
     """
-    data[cut(16 + h):cut(16 + h + t), cut(16 + s1):cut(16 + s1 + r1), cut(16 + s2):cut(16 + s2 + r2)] = 1
+    value = 1 if label is None else label
+    data[cut(16 + h):cut(16 + h + t), cut(16 + s1):cut(16 + s1 + r1), cut(16 + s2):cut(16 + s2 + r2)] = value
     step = np.asarray([1, h, s1, s2, t, r1, r2])
     return data, step
 
 
-def draw_rectangle_top(data, h, c1, c2, t, r1, r2):
+def draw_rectangle_top(data, h, c1, c2, t, r1, r2, label=None):
     """
     "Top", "Rectangle"
     :param (h, c1, c2): position
     :param (r1, r2, t): shape
     """
-    data[cut(16 + h):cut(16 + h + t), cut(16 + c1 - r1):cut(16 + c1 + r1), cut(16 + c2 - r2):cut(16 + c2 + r2)] = 1
+    value = 1 if label is None else label
+    data[cut(16 + h):cut(16 + h + t), cut(16 + c1 - r1):cut(16 + c1 + r1), cut(16 + c2 - r2):cut(16 + c2 + r2)] = value
     step = np.asarray([2, h, c1, c2, t, r1, r2])
     return data, step
 
 
-def draw_square_top(data, h, c1, c2, t, r):
+def draw_square_top(data, h, c1, c2, t, r, label=None):
     """
     "Top", "Square"
     :param (h, c1, c2): position
     :param (r, t): shape
     """
-    data[cut(16 + h):cut(16 + h + t), cut(16 + c1 - r):cut(16 + c1 + r), cut(16 + c2 - r):cut(16 + c2 + r)] = 1
+    value = 1 if label is None else label
+    data[cut(16 + h):cut(16 + h + t), cut(16 + c1 - r):cut(16 + c1 + r), cut(16 + c2 - r):cut(16 + c2 + r)] = value
     step = np.asarray([3, h, c1, c2, t, r])
     return data, step
 
 
-def draw_circle_top(data, h, c1, c2, t, r):
+def draw_circle_top(data, h, c1, c2, t, r, label=None):
     """
     "Top", "Circle"
     :param (h, c1, c2): position
     :param (r, t): shape
     """
-    data = draw_cylinder(data, h, c1, c2, t, r)
+    data = draw_cylinder(data, h, c1, c2, t, r, label)
     step = np.asarray([4, h, c1, c2, t, r])
     return data, step
 
 
-def draw_middle_rect_layer(data, h, c1, c2, t, r1, r2):
+def draw_middle_rect_layer(data, h, c1, c2, t, r1, r2, label=None):
     """
     "Layer", "Rectangle"
     :param (h, c1, c2): position
     :param (r1, r2, t): shape
     """
-    data[cut(16 + h):cut(16 + h + t), cut(16 + c1 - r1):cut(16 + c1 + r1), cut(16 + c2 - r2):cut(16 + c2 + r2)] = 1
+    value = 1 if label is None else label
+    data[cut(16 + h):cut(16 + h + t), cut(16 + c1 - r1):cut(16 + c1 + r1), cut(16 + c2 - r2):cut(16 + c2 + r2)] = value
     step = np.asarray([5, h, c1, c2, t, r1, r2])
     return data, step
 
 
-def draw_circle_support(data, h, c1, c2, t, r):
+def draw_circle_support(data, h, c1, c2, t, r, label=None):
     """
     "Support", "Cylindar"
     :param (h, c1, c2): position
     :param (r, t): shape
     """
-    data = draw_cylinder(data, h, c1, c2, t, r)
+    data = draw_cylinder(data, h, c1, c2, t, r, label)
     step = np.asarray([6, h, c1, c2, t, r])
     return data, step
 
 
-def draw_square_support(data, h, c1, c2, t, r):
+def draw_square_support(data, h, c1, c2, t, r, label=None):
     """
     "Support", "Cuboid"
     :param (h, c1, c2): position
     :param (r, t): shape
     """
-    data[cut(16 + h):cut(16 + h + t), cut(16 + c1 - r):cut(16 + c1 + r), cut(16 + c2 - r):cut(16 + c2 + r)] = 1
+    value = 1 if label is None else label
+    data[cut(16 + h):cut(16 + h + t), cut(16 + c1 - r):cut(16 + c1 + r), cut(16 + c2 - r):cut(16 + c2 + r)] = value
     step = np.asarray([7, h, c1, c2, t, r])
     return data, step
 
 
-def draw_circle_base(data, h, c1, c2, t, r):
+def draw_circle_base(data, h, c1, c2, t, r, label=None):
     """
     "Base", "Circle"
     :param (h, c1, c2): position
     :param (r, t): shape
     """
-    data = draw_cylinder(data, h, c1, c2, t, r)
+    data = draw_cylinder(data, h, c1, c2, t, r, label)
     step = np.asarray([8, h, c1, c2, t, r])
     return data, step
 
 
-def draw_square_base(data, h, c1, c2, t, r):
+def draw_square_base(data, h, c1, c2, t, r, label=None):
     """
     "Base", "Square"
     :param (h, c1, c2): position
     :param (r, t): shape
     """
-    data[cut(16 + h):cut(16 + h + t), cut(16 + c1 - r):cut(16 + c1 + r), cut(16 + c2 - r):cut(16 + c2 + r)] = 1
+    value = 1 if label is None else label
+    data[cut(16 + h):cut(16 + h + t), cut(16 + c1 - r):cut(16 + c1 + r), cut(16 + c2 - r):cut(16 + c2 + r)] = value
     step = np.asarray([9, h, c1, c2, t, r])
     return data, step
 
 
-def draw_cross_base(data, h, c1, c2, t, r, angle):
+def draw_cross_base(data, h, c1, c2, t, r, angle, label=None):
     """
     "Base", "Cross" ("line")
     :param (h, c1, c2): position, angle: angle position
     :param (r, t): shape
     TODO: extend to multiple angles, more than 3
     """
+    value = 1 if label is None else label
+
     angle = round(angle) % 4
     if angle == 0:
-        data[cut(16 + h):cut(16 + h + t), cut(16 - 1 + c1):cut(16 + 1 + c1), cut(16 + c2 - r):cut(16 + c2)] = 1
+        data[cut(16 + h):cut(16 + h + t), cut(16 - 1 + c1):cut(16 + 1 + c1), cut(16 + c2 - r):cut(16 + c2)] = value
     elif angle == 1:
-        data[cut(16 + h):cut(16 + h + t), cut(16 + c1):cut(16 + c1 + r), cut(16 - 1 + c2):cut(16 + 1 + c2)] = 1
+        data[cut(16 + h):cut(16 + h + t), cut(16 + c1):cut(16 + c1 + r), cut(16 - 1 + c2):cut(16 + 1 + c2)] = value
     elif angle == 2:
-        data[cut(16 + h):cut(16 + h + t), cut(16 - 1 + c1):cut(16 + 1 + c1), cut(16 + c2):cut(16 + c2 + r)] = 1
+        data[cut(16 + h):cut(16 + h + t), cut(16 - 1 + c1):cut(16 + 1 + c1), cut(16 + c2):cut(16 + c2 + r)] = value
     elif angle == 3:
-        data[cut(16 + h):cut(16 + h + t), cut(16 - r + c1):cut(16 + c1), cut(16 - 1 + c2):cut(16 + 1 + c2)] = 1
+        data[cut(16 + h):cut(16 + h + t), cut(16 - r + c1):cut(16 + c1), cut(16 - 1 + c2):cut(16 + 1 + c2)] = value
     else:
         raise ValueError("The angle type of the cross is wrong")
 
@@ -130,56 +138,61 @@ def draw_cross_base(data, h, c1, c2, t, r, angle):
     return data, step
 
 
-def draw_sideboard(data, h, s1, s2, t, r1, r2):
+def draw_sideboard(data, h, s1, s2, t, r1, r2, label=None):
     """
     "Sideboard", "Cuboid"
     :param (h, s1, s2): position
     :param (r1, r2, t): shape
     """
-    data[cut(16 + h):cut(16 + h + t), cut(16 + s1 - r1):cut(16 + s1 + r1), cut(16 + s2):cut(16 + s2 + r2)] = 1
+    value = 1 if label is None else label
+    data[cut(16 + h):cut(16 + h + t), cut(16 + s1 - r1):cut(16 + s1 + r1), cut(16 + s2):cut(16 + s2 + r2)] = value
     step = np.asarray([11, h, s1, s2, t, r1, r2])
     return data, step
 
 
-def draw_horizontal_bar(data, h, s1, s2, t, r1, r2):
+def draw_horizontal_bar(data, h, s1, s2, t, r1, r2, label=None):
     """
     "Horizontal_Bar", "Cuboid"
     :param (h, s1, s2): position
     :param (r1, r2, t): shape
     """
-    data[cut(16 + h):cut(16 + h + t), cut(16 + s1):cut(16 + s1 + r1), cut(16 + s2):cut(16 + s2 + r2)] = 1
+    value = 1 if label is None else label
+    data[cut(16 + h):cut(16 + h + t), cut(16 + s1):cut(16 + s1 + r1), cut(16 + s2):cut(16 + s2 + r2)] = value
     step = np.asarray([12, h, s1, s2, t, r1, r2])
     return data, step
 
 
-def draw_vertboard(data, h, s1, s2, t, r1, r2):
+def draw_vertboard(data, h, s1, s2, t, r1, r2, label=None):
     """
     "Vertical_board", "Cuboid"
     :param (h, s1, s2): position
     :param (r1, r2, t): shape
     """
-    data[cut(16 + h):cut(16 + h + t), cut(16 + s1):cut(16 + s1 + r1), cut(16 + s2):cut(16 + s2 + r2)] = 1
+    value = 1 if label is None else label
+    data[cut(16 + h):cut(16 + h + t), cut(16 + s1):cut(16 + s1 + r1), cut(16 + s2):cut(16 + s2 + r2)] = value
     step = np.asarray([13, h, s1, s2, t, r1, r2])
     return data, step
 
 
-def draw_locker(data, h, s1, s2, t, r1, r2):
+def draw_locker(data, h, s1, s2, t, r1, r2, label=None):
     """
     "Locker", "Cuboid"
     :param (h, s1, s2): position
     :param (r1, r2, t): shape
     """
-    data[cut(16 + h):cut(16 + h + t), cut(16 + s1):cut(16 + s1 + r1), cut(16 + s2):cut(16 + s2 + r2)] = 1
+    value = 1 if label is None else label
+    data[cut(16 + h):cut(16 + h + t), cut(16 + s1):cut(16 + s1 + r1), cut(16 + s2):cut(16 + s2 + r2)] = value
     step = np.asarray([14, h, s1, s2, t, r1, r2])
     return data, step
 
 
-def draw_tilt_back(data, h, s1, s2, t, r1, r2, tilt_fact):
+def draw_tilt_back(data, h, s1, s2, t, r1, r2, tilt_fact, label=None):
     """
     "Back", "Cuboid"
     :param (h, s1, s2): position
     :param (t, r1, r2, tilt_fact): shape
     """
+    value = 1 if label is None else label
     if t == 0:
         tilt_amount = tilt_fact
     else:
@@ -187,27 +200,29 @@ def draw_tilt_back(data, h, s1, s2, t, r1, r2, tilt_fact):
     for h_i in range(16+h, 16+h+t):
         if h_i == 32:
             break
-        data[cut(h_i), cut(int(16+np.rint(tilt_amount*(h_i-16-h)+s1))):cut(int(16+np.rint(tilt_amount*(h_i-16-h)+s1))+r1), cut(16+s2):cut(16+s2+r2)] = 1
+        data[cut(h_i), cut(int(16+np.rint(tilt_amount*(h_i-16-h)+s1))):cut(int(16+np.rint(tilt_amount*(h_i-16-h)+s1))+r1), cut(16+s2):cut(16+s2+r2)] = value
     step = np.asarray([15, h, s1, s2, t, r1, r2, tilt_fact])
     return data, step
 
 
-def draw_chair_beam(data, h, s1, s2, t, r1, r2):
+def draw_chair_beam(data, h, s1, s2, t, r1, r2, label=None):
     """
     "Chair_Beam", "Cuboid"
     :param (h, s1, s2): position
     :param (t, r1, r2): shape
     """
-    data[cut(16 + h):cut(16 + h + t), cut(16 + s1):cut(16 + s1 + r1), cut(16 + s2):cut(16 + s2 + r2)] = 1
+    value = 1 if label is None else label
+    data[cut(16 + h):cut(16 + h + t), cut(16 + s1):cut(16 + s1 + r1), cut(16 + s2):cut(16 + s2 + r2)] = value
     step = np.asarray([16, h, s1, s2, t, r1, r2])
     return data, step
 
 
-def draw_line(data, x1, y1, z1, x2, y2, z2, r=1):
+def draw_line(data, x1, y1, z1, x2, y2, z2, r=1, label=None):
     """
     "Line", "line"
     draw a line from (x1, y1, z1) to (x2, y2, z2) with a radius of r; the sampling version
     """
+    value = 1 if label is None else label
     eps = 1e-5
     full_l = 32
     half_l = full_l // 2
@@ -238,31 +253,35 @@ def draw_line(data, x1, y1, z1, x2, y2, z2, r=1):
 
     mask_2 = dis <= r + eps
     selected = np.array(p3[np.logical_and(mask_1, mask_2)])
-    data[selected[:, 0], selected[:, 1], selected[:, 2]] = 1
+    data[selected[:, 0], selected[:, 1], selected[:, 2]] = value
 
     return data, [17, x1, y1, z1, x2, y2, z2, r]
 
 
-def draw_back_support(data, h, s1, s2, t, r1, r2):
+def draw_back_support(data, h, s1, s2, t, r1, r2, label=None):
     """
     "Back_support", "Cuboid"
     :param (h, s1, s2): position
     :param (t, r1, r2): shape
     """
-    data[cut(16+h):cut(16+h+t), cut(16+s1):cut(16+s1+r1), cut(16+s2):cut(16+s2+r2)] = 1
+    value = 1 if label is None else label
+
+    data[cut(16+h):cut(16+h+t), cut(16+s1):cut(16+s1+r1), cut(16+s2):cut(16+s2+r2)] = value
     step = np.asarray([18, h, s1, s2, t, r1, r2])
     return data, step
 
 
-def draw_cylinder(data, h, c1, c2, t, r):
+def draw_cylinder(data, h, c1, c2, t, r, label=None):
     """
     :param h: position
     :param (r, t): shape
     """
+    value = 1 if label is None else label
+
     d = dictance2center(16 + c1, 16 + c2)
     mask = np.where(d <= r * 1.01)
     for i in range(cut(16 + h), cut(16 + h + t)):
-        data[i, ...][mask] = 1
+        data[i, ...][mask] = value
     return data
 
 
@@ -293,4 +312,3 @@ def dictance2center(c1, c2):
     d = np.sqrt(np.square(xx - c2) + np.square(yy - c1))
 
     return d
-
